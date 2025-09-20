@@ -1,156 +1,681 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Study Scheduler with Duration Events</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Study Scheduler + AI</title>
+
+  <!-- Bootstrap 5.3.8 -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-  <!-- FullCalendar CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.css" rel="stylesheet" />
+
+  <!-- FullCalendar -->
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.css" rel="stylesheet">
+
+  <style>
+    body { background: #f8f9fa; }
+    #calendar { max-width: 1100px; margin: 0 auto; }
+    .small-muted { font-size: .9rem; color: #6c757d; }
+  </style>
 </head>
-<body class="bg-light">
+<body>
   <div class="container py-4">
-    <h1 class="text-center mb-4">📅 AI Study Scheduler</h1>
+    <h1 class="text-center mb-4">📚 Study Scheduler with AI</h1>
 
-    <!-- Calendar Section -->
-    <div class="card mb-4">
-      <div class="card-header">My Calendar</div>
-      <div class="card-body">
-        <div id="calendar"></div>
+    <div class="row g-3">
+      <!-- Left: Calendar -->
+      <div class="col-lg-8">
+        <div class="card">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span>My Calendar</span>
+            <div>
+              <button id="btnGenerate" class="btn btn-primary btn-sm me-2">Generate (Heuristic)</button>
+              <button id="btnAI" class="btn btn-success btn-sm me-2">Generate with AI</button>
+              <button id="btnExport" class="btn btn-outline-secondary btn-sm">Export Events JSON</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="calendar"></div>
+          </div>
+        </div>
+
+        <div class="mt-3">
+          <label class="form-label small-muted">OpenAI API Key (optional — safer to use server/proxy):</label>
+          <input id="openaiKey" class="form-control" placeholder="sk-..." />
+        </div>
       </div>
-    </div>
 
-    <!-- Task List -->
-    <div class="card">
-      <div class="card-header">All Events / Tasks</div>
-      <ul class="list-group list-group-flush" id="taskList"></ul>
+      <!-- Right: Controls -->
+      <div class="col-lg-4">
+        <div class="card mb-3">
+          <div class="card-header">Quick Tasks Input</div>
+          <div class="card-body">
+            <p class="small-muted">Write lines like: <code>10 hours for Spanish project by 2025-10-10</code> or <code>2 hours for Math exam on 2025-09-25</code></p>
+            <textarea id="taskText" class="form-control mb-2" rows="6" placeholder="e.g. 10 hours for Spanish project by 2025-10-10"></textarea>
+            <div class="d-grid gap-2">
+              <button id="btnParse" class="btn btn-outline-primary">Parse Tasks</button>
+              <button id="btnClear" class="btn btn-outline-danger">Clear Tasks</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header">Parsed Tasks</div>
+          <ul class="list-group list-group-flush" id="tasksList"></ul>
+        </div>
+
+        <div class="card">
+          <div class="card-header">Scheduler Settings</div>
+          <div class="card-body">
+            <div class="mb-2">
+              <label class="form-label">Study block size (minutes)</label>
+              <input id="blockMinutes" type="number" class="form-control" value="60" min="15" step="15" />
+            </div>
+
+            <div class="mb-2">
+              <label class="form-label">Sleep window (blocked)</label>
+              <div class="input-group">
+                <input id="sleepStart" type="time" class="form-control" value="23:00" />
+                <span class="input-group-text">→</span>
+                <input id="sleepEnd" type="time" class="form-control" value="07:00" />
+              </div>
+            </div>
+
+            <div class="mb-2">
+              <label class="form-label">Meal windows (blocked)</label>
+              <div class="small-muted mb-1">Lunch</div>
+              <div class="input-group mb-2">
+                <input id="lunchStart" type="time" class="form-control" value="12:00" />
+                <span class="input-group-text">→</span>
+                <input id="lunchEnd" type="time" class="form-control" value="13:00" />
+              </div>
+              <div class="small-muted mb-1">Dinner</div>
+              <div class="input-group">
+                <input id="dinnerStart" type="time" class="form-control" value="18:00" />
+                <span class="input-group-text">→</span>
+                <input id="dinnerEnd" type="time" class="form-control" value="19:00" />
+              </div>
+            </div>
+
+            <div class="form-check form-switch mt-2">
+              <input class="form-check-input" type="checkbox" id="respectMeals" checked>
+              <label class="form-check-label" for="respectMeals">Respect meals & sleep</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mt-3">
+          <div class="card-header">Generated Study Blocks</div>
+          <ul class="list-group list-group-flush" id="scheduleList"></ul>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- Modal for Adding Event -->
+  <!-- Event Modal (Add/Edit) -->
   <div class="modal fade" id="eventModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
-      <div class="modal-content">
-        <form id="eventForm">
-          <div class="modal-header">
-            <h5 class="modal-title">Add Event</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      <form id="eventForm" class="modal-content">
+        <div class="modal-header">
+          <h5 id="modalTitle" class="modal-title">Add Event</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-2">
+            <label class="form-label">Title</label>
+            <input id="evTitle" class="form-control" required />
           </div>
-          <div class="modal-body">
-            <div class="mb-3">
-              <label class="form-label">Event Title</label>
-              <input type="text" class="form-control" id="eventTitle" required>
+
+          <div class="mb-2">
+            <label class="form-label">Date</label>
+            <input id="evDate" type="date" class="form-control" required />
+          </div>
+
+          <div class="row g-2 mb-2">
+            <div class="col">
+              <label class="form-label">Start time</label>
+              <input id="evStart" type="time" class="form-control" required />
             </div>
-            <div class="mb-3">
-              <label class="form-label">Duration (minutes)</label>
-              <input type="number" class="form-control" id="eventDuration" min="1" required>
+            <div class="col">
+              <label class="form-label">End time</label>
+              <input id="evEnd" type="time" class="form-control" required />
             </div>
-            <input type="hidden" id="eventStart">
           </div>
-          <div class="modal-footer">
-            <button type="submit" class="btn btn-success">Add Event</button>
+
+          <div class="mb-2">
+            <label class="form-label">Mark as exam/assignment (optional)</label>
+            <select id="evType" class="form-select">
+              <option value="">— none —</option>
+              <option value="exam">Exam</option>
+              <option value="assignment">Assignment</option>
+              <option value="class">Class</option>
+              <option value="other">Other</option>
+            </select>
           </div>
-        </form>
-      </div>
+
+          <div class="mb-2">
+            <label class="form-label">Estimated study hours (optional)</label>
+            <input id="evEstimate" type="number" min="0" step="0.25" class="form-control" placeholder="e.g. 10" />
+            <div class="small-muted">If you mark this as assignment/exam, you can provide an estimate.</div>
+          </div>
+
+          <input type="hidden" id="evId" />
+        </div>
+        <div class="modal-footer">
+          <button id="deleteEvent" type="button" class="btn btn-danger me-auto d-none">Delete</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
     </div>
   </div>
 
-  <!-- Bootstrap + FullCalendar JS -->
+  <!-- Bootstrap & FullCalendar JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+
   <script>
-    document.addEventListener("DOMContentLoaded", function () {
-      const taskList = document.getElementById("taskList");
-      const modal = new bootstrap.Modal(document.getElementById("eventModal"));
-      const eventForm = document.getElementById("eventForm");
+  (function () {
+    // --------------------------
+    // Utilities
+    // --------------------------
+    function toISODate(d) { return d.toISOString().split('T')[0]; }
+    function parseTimeToDate(dateStr, timeStr) {
+      // dateStr like '2025-09-20', timeStr like '13:30'
+      return new Date(dateStr + 'T' + timeStr + ':00');
+    }
+    function clamp(min, v, max) { return Math.max(min, Math.min(v, max)); }
 
-      const titleInput = document.getElementById("eventTitle");
-      const durationInput = document.getElementById("eventDuration");
-      const startInput = document.getElementById("eventStart");
+    // --------------------------
+    // Calendar init
+    // --------------------------
+    const calendarEl = document.getElementById('calendar');
+    const scheduleList = document.getElementById('scheduleList');
+    const tasksList = document.getElementById('tasksList');
 
-      let calendar, currentStart;
+    let calendar = new FullCalendar.Calendar(calendarEl, {
+      initialView: 'timeGridWeek',
+      height: 650,
+      selectable: true,
+      editable: true,
+      headerToolbar: {
+        left: 'prev,next today',
+        center: 'title',
+        right: 'dayGridMonth,timeGridWeek,timeGridDay'
+      },
+      select: function(info) {
+        openEventModal({
+          id: '',
+          title: '',
+          date: info.startStr.split('T')[0],
+          startTime: info.startStr.slice(11,16),
+          endTime: info.endStr.slice(11,16),
+          type: '',
+          estimate: ''
+        }, false);
+      },
+      eventClick: function(evinfo) {
+        const e = evinfo.event;
+        openEventModal({
+          id: e.id,
+          title: e.title,
+          date: toISODate(e.start),
+          startTime: e.start.toTimeString().slice(0,5),
+          endTime: e.end ? e.end.toTimeString().slice(0,5) : e.start.toTimeString().slice(0,5),
+          type: e.extendedProps?.type || '',
+          estimate: e.extendedProps?.estimate || ''
+        }, true);
+      },
+      eventDrop: updateTaskList,
+      eventResize: updateTaskList
+    });
+    calendar.render();
 
-      // Initialize calendar
-      const calendarEl = document.getElementById("calendar");
-      calendar = new FullCalendar.Calendar(calendarEl, {
-        initialView: "dayGridMonth",
-        selectable: true,
-        editable: true,
-        headerToolbar: {
-          left: "prev,next today",
-          center: "title",
-          right: "dayGridMonth,timeGridWeek,timeGridDay"
-        },
+    // --------------------------
+    // Modal control
+    // --------------------------
+    const modalEl = document.getElementById('eventModal');
+    const modal = new bootstrap.Modal(modalEl);
+    const evtForm = document.getElementById('eventForm');
+    const modalTitle = document.getElementById('modalTitle');
+    const btnDelete = document.getElementById('deleteEvent');
 
-        // When selecting a slot
-        select: function (info) {
-          currentStart = info.start;
-          startInput.value = info.startStr;
-          titleInput.value = "";
-          durationInput.value = "";
-          modal.show();
-        },
+    function openEventModal(data, isEdit) {
+      modalTitle.textContent = isEdit ? 'Edit Event' : 'Add Event';
+      document.getElementById('evTitle').value = data.title || '';
+      document.getElementById('evDate').value = data.date || toISODate(new Date());
+      document.getElementById('evStart').value = data.startTime || '09:00';
+      document.getElementById('evEnd').value = data.endTime || '10:00';
+      document.getElementById('evType').value = data.type || '';
+      document.getElementById('evEstimate').value = data.estimate || '';
+      document.getElementById('evId').value = data.id || '';
+      btnDelete.classList.toggle('d-none', !isEdit);
+      modal.show();
+    }
 
-        // Allow editing events
-        eventClick: function (info) {
-          const newTitle = prompt("Edit event title:", info.event.title);
-          if (newTitle === null) return; // cancel
-          if (newTitle === "") {
-            if (confirm("Delete this event?")) {
-              info.event.remove();
-            }
-          } else {
-            info.event.setProp("title", newTitle);
-          }
-          updateTaskList();
-        },
+    evtForm.addEventListener('submit', function(ev) {
+      ev.preventDefault();
+      const id = document.getElementById('evId').value;
+      const title = document.getElementById('evTitle').value.trim();
+      const date = document.getElementById('evDate').value;
+      const start = document.getElementById('evStart').value;
+      const end = document.getElementById('evEnd').value;
+      const type = document.getElementById('evType').value;
+      const estimate = document.getElementById('evEstimate').value;
 
-        eventChange: function () {
-          updateTaskList();
-        },
+      if (!title || !date || !start || !end) { alert('Please fill required fields'); return; }
+      const startDt = parseTimeToDate(date, start);
+      const endDt = parseTimeToDate(date, end);
+      if (isNaN(startDt) || isNaN(endDt) || endDt <= startDt) { alert('Invalid times'); return; }
 
-        eventRemove: function () {
-          updateTaskList();
+      if (id) {
+        const evObj = calendar.getEventById(id);
+        if (evObj) {
+          evObj.setProp('title', title);
+          evObj.setStart(startDt);
+          evObj.setEnd(endDt);
+          evObj.setExtendedProp('type', type);
+          if (estimate) evObj.setExtendedProp('estimate', estimate);
+          else evObj.removeExtendedProp('estimate');
         }
-      });
-
-      calendar.render();
-
-      // Handle modal form submission
-      eventForm.addEventListener("submit", function (e) {
-        e.preventDefault();
-        const title = titleInput.value;
-        const duration = parseInt(durationInput.value);
-
-        if (title && duration > 0) {
-          const start = new Date(startInput.value);
-          const end = new Date(start.getTime() + duration * 60000);
-
-          calendar.addEvent({
-            title: title,
-            start: start,
-            end: end,
-            allDay: false
-          });
-
-          updateTaskList();
-          modal.hide();
-        }
-      });
-
-      // Sync events to task list
-      function updateTaskList() {
-        taskList.innerHTML = "";
-        calendar.getEvents().forEach((e) => {
-          const li = document.createElement("li");
-          li.className = "list-group-item";
-          li.textContent =
-            `${e.title} — ${e.start.toLocaleString()}`
-            + (e.end ? ` → ${e.end.toLocaleString()}` : "");
-          taskList.appendChild(li);
+      } else {
+        calendar.addEvent({
+          id: String(Date.now()) + Math.floor(Math.random()*1000),
+          title,
+          start: startDt,
+          end: endDt,
+          extendedProps: { type, estimate }
         });
       }
+      modal.hide();
+      updateTaskList();
     });
+
+    btnDelete.addEventListener('click', function() {
+      const id = document.getElementById('evId').value;
+      if (!id) return;
+      if (confirm('Delete this event?')) {
+        const e = calendar.getEventById(id);
+        if (e) e.remove();
+        modal.hide();
+        updateTaskList();
+      }
+    });
+
+    // --------------------------
+    // Parsing quick tasks text
+    // --------------------------
+    document.getElementById('btnParse').addEventListener('click', () => {
+      const txt = document.getElementById('taskText').value;
+      const lines = txt.split('\n').map(s => s.trim()).filter(Boolean);
+      for (const line of lines) {
+        // Examples to parse:
+        // "10 hours for Spanish project by 2025-10-10"
+        // "2 hours for Math exam on 2025-09-25"
+        // "Spanish project: 10h due 2025-10-10"
+        let m = line.match(/(\d+(\.\d+)?)\s*hours?\s*(for|of)?\s*(.+?)\s*(by|on|due)?\s*(\d{4}-\d{2}-\d{2})?/i);
+        if (m) {
+          const hours = parseFloat(m[1]);
+          const title = (m[4] || 'Task').trim();
+          const due = m[6] ? m[6] : null;
+          // If due date provided, create an 'assignment/exam' event on that date with estimate
+          if (due) {
+            // place as an all-day placeholder at date (user can edit times)
+            calendar.addEvent({
+              id: String(Date.now()) + Math.floor(Math.random()*1000),
+              title: title + ' (due)',
+              start: new Date(due + 'T09:00:00'),
+              end: new Date(due + 'T10:00:00'),
+              extendedProps: { type: 'assignment', estimate: hours }
+            });
+          } else {
+            // add a quick task event without due date
+            calendar.addEvent({
+              id: String(Date.now()) + Math.floor(Math.random()*1000),
+              title: title,
+              start: new Date(),
+              end: new Date(new Date().getTime() + 60*60*1000),
+              extendedProps: { type: 'assignment', estimate: hours }
+            });
+          }
+        } else {
+          // fallback: try "[title] due 2025-..." or "[title] on 2025-..."
+          let m2 = line.match(/(.+?)\s+(?:by|on|due)\s+(\d{4}-\d{2}-\d{2})/i);
+          if (m2) {
+            calendar.addEvent({
+              id: String(Date.now()) + Math.floor(Math.random()*1000),
+              title: m2[1].trim(),
+              start: new Date(m2[2] + 'T09:00:00'),
+              end: new Date(m2[2] + 'T10:00:00'),
+            });
+          } else {
+            // otherwise add as untimed task (user can edit)
+            calendar.addEvent({
+              id: String(Date.now()) + Math.floor(Math.random()*1000),
+              title: line,
+              start: new Date(),
+              end: new Date(new Date().getTime() + 60*60*1000),
+            });
+          }
+        }
+      }
+      document.getElementById('taskText').value = '';
+      updateTaskList();
+    });
+
+    document.getElementById('btnClear').addEventListener('click', () => {
+      if (!confirm('Clear all calendar events?')) return;
+      calendar.getEvents().forEach(e => e.remove());
+      updateTaskList();
+    });
+
+    // --------------------------
+    // Update task list rendering
+    // --------------------------
+    function updateTaskList() {
+      tasksList.innerHTML = '';
+      const events = calendar.getEvents().slice().sort((a,b)=> a.start - b.start);
+      events.forEach(ev => {
+        const li = document.createElement('li');
+        li.className = 'list-group-item d-flex justify-content-between align-items-start';
+        const left = document.createElement('div');
+        left.innerHTML = `<div><strong>${ev.title}</strong></div>
+                          <div class="small-muted">${ev.start.toLocaleString()}${ev.end ? ' → ' + ev.end.toLocaleString() : ''}</div>`;
+        const right = document.createElement('div');
+        if (ev.extendedProps && ev.extendedProps.estimate) {
+          right.innerHTML = `<span class="badge bg-info text-dark">${ev.extendedProps.estimate} hrs</span>`;
+        }
+        li.appendChild(left);
+        li.appendChild(right);
+        tasksList.appendChild(li);
+      });
+      // also update schedule display
+      renderScheduleList([]);
+    }
+
+    // --------------------------
+    // Build free time slots and allocate (heuristic)
+    // --------------------------
+    function getCalendarEventsInRange(startDate, endDate) {
+      // returns events overlapping the range
+      return calendar.getEvents().filter(e => !(e.end <= startDate || e.start >= endDate));
+    }
+
+    function buildBlockedWindows(rangeStart, rangeEnd, respectMeals=true) {
+      // returns array of blocked windows (start,end) based on events + sleep/meals
+      const blocks = [];
+      // add events
+      calendar.getEvents().forEach(ev => {
+        // ignore events outside horizon
+        if (ev.end <= rangeStart || ev.start >= rangeEnd) return;
+        blocks.push({ start: new Date(ev.start), end: new Date(ev.end) });
+      });
+
+      // sleep window repeated each day
+      const sleepStart = document.getElementById('sleepStart').value;
+      const sleepEnd = document.getElementById('sleepEnd').value;
+      const lunchStart = document.getElementById('lunchStart').value;
+      const lunchEnd = document.getElementById('lunchEnd').value;
+      const dinnerStart = document.getElementById('dinnerStart').value;
+      const dinnerEnd = document.getElementById('dinnerEnd').value;
+
+      const cur = new Date(rangeStart);
+      while (cur < rangeEnd) {
+        const day = toISODate(cur);
+        // Sleep: if sleepStart <= sleepEnd => same day; else crosses midnight
+        if (sleepStart && sleepEnd) {
+          if (sleepStart < sleepEnd) {
+            blocks.push({ start: parseTimeToDate(day, sleepStart), end: parseTimeToDate(day, sleepEnd) });
+          } else {
+            // sleep spans midnight: from day sleepStart -> next day sleepEnd
+            blocks.push({ start: parseTimeToDate(day, sleepStart), end: new Date(parseTimeToDate(day, sleepEnd).getTime() + 24*60*60*1000) });
+          }
+        }
+        if (respectMeals) {
+          if (lunchStart && lunchEnd) blocks.push({ start: parseTimeToDate(day, lunchStart), end: parseTimeToDate(day, lunchEnd) });
+          if (dinnerStart && dinnerEnd) blocks.push({ start: parseTimeToDate(day, dinnerStart), end: parseTimeToDate(day, dinnerEnd) });
+        }
+        cur.setDate(cur.getDate()+1);
+      }
+
+      // normalize and merge overlapping blocks
+      blocks.sort((a,b)=>a.start - b.start);
+      const merged = [];
+      for (const b of blocks) {
+        if (!b.start || !b.end || b.end <= b.start) continue;
+        if (merged.length === 0) merged.push({ start: new Date(b.start), end: new Date(b.end) });
+        else {
+          const last = merged[merged.length-1];
+          if (b.start <= last.end) {
+            last.end = new Date(Math.max(last.end, b.end));
+          } else merged.push({ start: new Date(b.start), end: new Date(b.end) });
+        }
+      }
+      return merged;
+    }
+
+    function invertWindows(blocked, rangeStart, rangeEnd, minMinutes=15) {
+      // returns free windows between rangeStart..rangeEnd excluding blocked windows
+      const free = [];
+      let cursor = new Date(rangeStart);
+      for (const b of blocked) {
+        if (b.end <= cursor) continue;
+        if (b.start > cursor) {
+          if ((b.start - cursor) / 60000 >= minMinutes) free.push({ start: new Date(cursor), end: new Date(b.start) });
+        }
+        cursor = new Date(Math.max(cursor, b.end));
+        if (cursor >= rangeEnd) break;
+      }
+      if (cursor < rangeEnd) {
+        if ((rangeEnd - cursor)/60000 >= minMinutes) free.push({ start: new Date(cursor), end: new Date(rangeEnd) });
+      }
+      return free;
+    }
+
+    // Simple greedy allocation: earliest deadline first, fill free slots prior to due date
+    function heuristicSchedule(horizonDays=7) {
+      const now = new Date();
+      const horizonEnd = new Date(now.getTime() + horizonDays*24*60*60*1000);
+      const respectMeals = document.getElementById('respectMeals').checked;
+      const blocked = buildBlockedWindows(now, horizonEnd, respectMeals);
+      const freeSlots = invertWindows(blocked, now, horizonEnd, 15);
+
+      // collect tasks from events with estimate and type exam/assignment OR from events labeled "(due)"
+      const events = calendar.getEvents();
+      const tasks = [];
+      events.forEach(ev => {
+        const type = ev.extendedProps?.type || '';
+        const estimate = ev.extendedProps?.estimate ? parseFloat(ev.extendedProps.estimate) : null;
+        const title = ev.title || 'Untitled';
+        // Heuristic: treat events with type 'exam' or 'assignment' or with '(due)' in title as tasks
+        if (type === 'exam' || type === 'assignment' || /due/i.test(title) || estimate) {
+          // define due date as event start date (end of day)
+          const due = new Date(ev.start);
+          due.setHours(23,59,59,999);
+          tasks.push({ title, estimate: estimate || 2, due });
+        }
+      });
+
+      // Also collect standalone tasks without event: none here (user can add via quick input which creates events)
+      // Sort by due (earliest first)
+      tasks.sort((a,b)=>a.due - b.due);
+
+      // convert freeSlots to array we can consume (mutable)
+      const free = freeSlots.map(s => ({ start: new Date(s.start), end: new Date(s.end) }));
+      const blockMin = parseInt(document.getElementById('blockMinutes').value) || 60;
+      const schedule = [];
+
+      for (const task of tasks) {
+        let remainingMins = Math.round((task.estimate || 1) * 60);
+        // try to allocate from free slots that are before task.due
+        for (let i=0; i<free.length && remainingMins>0; i++) {
+          const slot = free[i];
+          if (slot.start >= task.due) break;
+          const slotEndClamped = new Date(Math.min(slot.end.getTime(), task.due.getTime()));
+          let avail = Math.floor((slotEndClamped - slot.start)/60000);
+          if (avail <= 0) continue;
+          // allocate as many blockMin chunks as possible (or partial chunk)
+          while (avail >= Math.min(blockMin, remainingMins) && remainingMins > 0) {
+            const take = Math.min(blockMin, remainingMins, avail);
+            const st = new Date(slot.start);
+            const en = new Date(st.getTime() + take*60000);
+            schedule.push({ title: task.title, start: st, end: en, minutes: take });
+            // advance slot.start
+            slot.start = new Date(en);
+            avail = Math.floor((slotEndClamped - slot.start)/60000);
+            remainingMins -= take;
+          }
+          // if slot is fully consumed (start >= end), remove later when iterating
+        }
+        if (remainingMins > 0) {
+          // note unscheduled remainder
+          schedule.push({ title: task.title, note: `Unscheduled ${remainingMins} mins before due ${task.due.toLocaleDateString()}` });
+        }
+      }
+
+      // remove tiny zero-length free slots
+      for (let i=free.length-1;i>=0;i--) if (free[i].end <= free[i].start) free.splice(i,1);
+
+      return schedule;
+    }
+
+    // Renders schedule to UI and optionally inserts events into calendar
+    async function renderScheduleList(schedule, pushToCalendar=false) {
+      scheduleList.innerHTML = '';
+      if (!schedule || schedule.length===0) {
+        scheduleList.innerHTML = '<li class="list-group-item text-muted">No study blocks generated.</li>';
+        return;
+      }
+      schedule.forEach(s => {
+        const li = document.createElement('li');
+        li.className = 'list-group-item';
+        if (s.note) {
+          li.innerHTML = `<strong>${s.title}</strong> — <span class="text-warning">${s.note}</span>`;
+        } else {
+          li.innerHTML = `<strong>${s.title}</strong> — ${s.start.toLocaleString()} → ${s.end.toLocaleString()} (${s.minutes} min)`;
+          if (pushToCalendar) {
+            // create calendar event as study block
+            calendar.addEvent({
+              id: 'study-' + String(Date.now()) + Math.floor(Math.random()*1000),
+              title: 'Study: ' + s.title,
+              start: s.start,
+              end: s.end,
+              extendedProps: { type: 'study' }
+            });
+          }
+        }
+        scheduleList.appendChild(li);
+      });
+      updateTaskList(); // sync list
+    }
+
+    // --------------------------
+    // AI integration (optional)
+    // --------------------------
+    async function generateWithAI() {
+      // prepare context: events + tasks + free slots + settings
+      const now = new Date();
+      const horizonDays = 7;
+      const horizonEnd = new Date(now.getTime() + horizonDays*24*3600*1000);
+      const events = calendar.getEvents().map(e => ({
+        title: e.title,
+        start: e.start.toISOString(),
+        end: e.end ? e.end.toISOString() : null,
+        type: e.extendedProps?.type || null,
+        estimate: e.extendedProps?.estimate || null
+      }));
+      const respectMeals = document.getElementById('respectMeals').checked;
+      const settings = {
+        horizonDays,
+        sleepStart: document.getElementById('sleepStart').value,
+        sleepEnd: document.getElementById('sleepEnd').value,
+        lunchStart: document.getElementById('lunchStart').value,
+        lunchEnd: document.getElementById('lunchEnd').value,
+        dinnerStart: document.getElementById('dinnerStart').value,
+        dinnerEnd: document.getElementById('dinnerEnd').value,
+        respectMeals,
+        blockMinutes: parseInt(document.getElementById('blockMinutes').value) || 60
+      };
+
+      const openaiKey = document.getElementById('openaiKey').value.trim();
+      if (!openaiKey) {
+        if (!confirm('No OpenAI key provided — run local heuristic instead?')) return;
+        const schedule = heuristicSchedule(settings.horizonDays);
+        renderScheduleList(schedule, false);
+        return;
+      }
+
+      // Build prompt
+      const systemMsg = `You are a helpful assistant that creates a weekly study schedule. Output ONLY valid JSON in this exact schema: {"study_blocks": [{"title":"...", "start":"ISO8601","end":"ISO8601"}], "notes":["..."]}. Use the user's calendar events to find exams and assignments (type 'exam' or 'assignment' or titles containing 'due' should be treated as requiring study). Respect sleep and meal windows and do not schedule inside them. Try to schedule study blocks (prefer blockMinutes minutes each) before each task's due date (if provided). If you can't fully allocate required time, put notes describing the deficit.`;
+
+      const userMsg = {
+        events,
+        settings,
+        instruction: 'Create study blocks for the next ' + settings.horizonDays + ' days. Give study blocks as JSON as specified.'
+      };
+
+      // call OpenAI Chat Completions (client-side). WARNING: exposing key in browser is insecure. Prefer a server proxy.
+      try {
+        const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + openaiKey },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini', // change as you prefer
+            messages: [
+              { role: 'system', content: systemMsg },
+              { role: 'user', content: JSON.stringify(userMsg) }
+            ],
+            max_tokens: 700,
+            temperature: 0.2
+          })
+        });
+        if (!resp.ok) {
+          const txt = await resp.text();
+          alert('OpenAI error: ' + resp.status + ' — ' + txt);
+          return;
+        }
+        const j = await resp.json();
+        const assistant = j.choices?.[0]?.message?.content;
+        // find JSON inside assistant content
+        const jsonTextMatch = assistant && assistant.match(/\{[\s\S]*\}/);
+        if (!jsonTextMatch) {
+          alert('AI response did not contain JSON. Response:\n' + assistant);
+          return;
+        }
+        const parsed = JSON.parse(jsonTextMatch[0]);
+        const blocks = parsed.study_blocks.map(b => ({ title: b.title, start: new Date(b.start), end: new Date(b.end) }));
+        await renderScheduleList(blocks, true); // push into calendar
+        if (parsed.notes && parsed.notes.length) {
+          parsed.notes.forEach(n => console.warn('AI note:', n));
+        }
+      } catch (err) {
+        console.error(err);
+        alert('AI scheduling failed: ' + err.message);
+      }
+    }
+
+    // --------------------------
+    // Buttons
+    // --------------------------
+    document.getElementById('btnGenerate').addEventListener('click', () => {
+      const sch = heuristicSchedule(7);
+      renderScheduleList(sch, false);
+    });
+    document.getElementById('btnAI').addEventListener('click', generateWithAI);
+    document.getElementById('btnExport').addEventListener('click', () => {
+      const events = calendar.getEvents().map(e => ({
+        id: e.id, title: e.title, start: e.start.toISOString(), end: e.end ? e.end.toISOString() : null,
+        props: e.extendedProps
+      }));
+      const blob = new Blob([JSON.stringify(events, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'events.json'; a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // initial update
+    updateTaskList();
+
+  })();
   </script>
 </body>
 </html>
