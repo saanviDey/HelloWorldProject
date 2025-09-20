@@ -3,219 +3,154 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Study Scheduler</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="https://apis.google.com/js/api.js"></script>
+  <title>Study Scheduler with Duration Events</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- FullCalendar CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.css" rel="stylesheet" />
 </head>
 <body class="bg-light">
-  <!-- <script src="https://apis.google.com/js/platform.js" async defer></script> -->
-  <h1 class="bg-secondary text-center fluid py-4">📅 Study Smarter</h1>
-  <div class="container pb-4">
+  <div class="container py-4">
+    <h1 class="text-center mb-4">📅 AI Study Scheduler</h1>
 
-    <!-- Google Sign In -->
+    <!-- Calendar Section -->
     <div class="card mb-4">
-      <div class="card-body text-center">
-        <button id="authorize_button" class="btn btn-primary">Sign in with Google</button>
-        <button id="signout_button" class="btn btn-outline-danger d-none">Sign Out</button>
-      </div>
-    </div>
-
-    <!-- Task Input -->
-    <div class="card mb-4">
-      <div class="card-header">Add a Study Task</div>
+      <div class="card-header">My Calendar</div>
       <div class="card-body">
-        <form id="taskForm" class="row g-3">
-          <div class="col-md-4">
-            <label class="form-label">Task Name</label>
-            <input type="text" class="form-control" id="taskName" required>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Due Date</label>
-            <input type="date" class="form-control" id="taskDue" required>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Estimated Study Hours</label>
-            <input type="number" class="form-control" id="taskHours" min="1" required>
-          </div>
-          <div class="col-12">
-            <button type="submit" class="btn btn-success">Add Task</button>
-          </div>
-        </form>
+        <div id="calendar"></div>
       </div>
     </div>
 
     <!-- Task List -->
-    <div class="card mb-4">
-      <div class="card-header">Tasks</div>
-      <ul class="list-group list-group-flush" id="taskList"></ul>
-    </div>
-
-    <!-- Schedule Output -->
     <div class="card">
-      <div class="card-header">Suggested Study Schedule</div>
-      <ul class="list-group list-group-flush" id="scheduleList"></ul>
+      <div class="card-header">All Events / Tasks</div>
+      <ul class="list-group list-group-flush" id="taskList"></ul>
     </div>
   </div>
 
+  <!-- Modal for Adding Event -->
+  <div class="modal fade" id="eventModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form id="eventForm">
+          <div class="modal-header">
+            <h5 class="modal-title">Add Event</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">Event Title</label>
+              <input type="text" class="form-control" id="eventTitle" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Duration (minutes)</label>
+              <input type="number" class="form-control" id="eventDuration" min="1" required>
+            </div>
+            <input type="hidden" id="eventStart">
+          </div>
+          <div class="modal-footer">
+            <button type="submit" class="btn btn-success">Add Event</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap + FullCalendar JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
   <script>
-    const CLIENT_ID = "http://1061855570713-evtnvbajus4st7fbhr90go06oa2ceong.apps.googleusercontent.com"; // replace with your client ID
-    const API_KEY = "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"; // replace with your API key
-    const SCOPES = "https://www.googleapis.com/auth/calendar";
+    document.addEventListener("DOMContentLoaded", function () {
+      const taskList = document.getElementById("taskList");
+      const modal = new bootstrap.Modal(document.getElementById("eventModal"));
+      const eventForm = document.getElementById("eventForm");
 
-    let gapiInited = false;
-    let gisInited = false;
-    let tokenClient;
-    let tasks = [];
+      const titleInput = document.getElementById("eventTitle");
+      const durationInput = document.getElementById("eventDuration");
+      const startInput = document.getElementById("eventStart");
 
-    const authorizeButton = document.getElementById("authorize_button");
-    const signoutButton = document.getElementById("signout_button");
-    const taskForm = document.getElementById("taskForm");
-    const taskList = document.getElementById("taskList");
-    const scheduleList = document.getElementById("scheduleList");
+      let calendar, currentStart;
 
-    function gapiLoaded() {
-      gapi.load("client", initializeGapiClient);
-    }
-
-    async function initializeGapiClient() {
-      await gapi.client.init({
-        apiKey: API_KEY,
-        discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"],
-      });
-      gapiInited = true;
-    }
-
-    function gisLoaded() {
-      tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        callback: "", // defined later
-      });
-      gisInited = true;
-    }
-
-    authorizeButton.onclick = () => {
-      tokenClient.callback = async (resp) => {
-        if (resp.error !== undefined) throw (resp);
-        authorizeButton.classList.add("d-none");
-        signoutButton.classList.remove("d-none");
-        await listFreeBusy();
-      };
-      if (gapi.client.getToken() === null) {
-        tokenClient.requestAccessToken({ prompt: "consent" });
-      } else {
-        tokenClient.requestAccessToken({ prompt: "" });
-      }
-    };
-
-    signoutButton.onclick = () => {
-      const token = gapi.client.getToken();
-      if (token !== null) {
-        google.accounts.oauth2.revoke(token.access_token);
-        gapi.client.setToken("");
-        authorizeButton.classList.remove("d-none");
-        signoutButton.classList.add("d-none");
-      }
-    };
-
-    taskForm.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const name = document.getElementById("taskName").value;
-      const due = document.getElementById("taskDue").value;
-      const hours = parseInt(document.getElementById("taskHours").value);
-      tasks.push({ name, due, hours });
-      renderTasks();
-      taskForm.reset();
-      scheduleTasks();
-    });
-
-    function renderTasks() {
-      taskList.innerHTML = "";
-      tasks.forEach((t, i) => {
-        const li = document.createElement("li");
-        li.className = "list-group-item d-flex justify-content-between align-items-center";
-        li.textContent = `${t.name} (Due: ${t.due}, Hours: ${t.hours})`;
-        const btn = document.createElement("button");
-        btn.className = "btn btn-sm btn-danger";
-        btn.textContent = "Remove";
-        btn.onclick = () => {
-          tasks.splice(i, 1);
-          renderTasks();
-          scheduleTasks();
-        };
-        li.appendChild(btn);
-        taskList.appendChild(li);
-      });
-    }
-
-    async function listFreeBusy() {
-      const now = new Date();
-      const weekLater = new Date();
-      weekLater.setDate(now.getDate() + 7);
-
-      const response = await gapi.client.calendar.freebusy.query({
-        resource: {
-          timeMin: now.toISOString(),
-          timeMax: weekLater.toISOString(),
-          timeZone: "UTC",
-          items: [{ id: "primary" }],
+      // Initialize calendar
+      const calendarEl = document.getElementById("calendar");
+      calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: "dayGridMonth",
+        selectable: true,
+        editable: true,
+        headerToolbar: {
+          left: "prev,next today",
+          center: "title",
+          right: "dayGridMonth,timeGridWeek,timeGridDay"
         },
-      });
 
-      const busy = response.result.calendars.primary.busy;
-      const freeSlots = [];
-      let last = now;
-      busy.forEach((b) => {
-        const start = new Date(b.start);
-        if (last < start) {
-          freeSlots.push({ start: last, end: start });
-        }
-        last = new Date(b.end);
-      });
-      if (last < weekLater) freeSlots.push({ start: last, end: weekLater });
+        // When selecting a slot
+        select: function (info) {
+          currentStart = info.start;
+          startInput.value = info.startStr;
+          titleInput.value = "";
+          durationInput.value = "";
+          modal.show();
+        },
 
-      return freeSlots;
-    }
-
-    async function scheduleTasks() {
-      scheduleList.innerHTML = "<li class='list-group-item'>Finding free time...</li>";
-      const freeSlots = await listFreeBusy();
-      scheduleList.innerHTML = "";
-      let scheduled = [];
-
-      for (const task of tasks) {
-        let remaining = task.hours;
-        for (const slot of freeSlots) {
-          if (remaining <= 0) break;
-          let slotHours = (slot.end - slot.start) / (1000 * 60 * 60);
-          if (slotHours > 0) {
-            let used = Math.min(remaining, slotHours);
-            scheduled.push({
-              task: task.name,
-              start: new Date(slot.start),
-              end: new Date(slot.start.getTime() + used * 60 * 60 * 1000),
-            });
-            slot.start = new Date(slot.start.getTime() + used * 60 * 60 * 1000);
-            remaining -= used;
+        // Allow editing events
+        eventClick: function (info) {
+          const newTitle = prompt("Edit event title:", info.event.title);
+          if (newTitle === null) return; // cancel
+          if (newTitle === "") {
+            if (confirm("Delete this event?")) {
+              info.event.remove();
+            }
+          } else {
+            info.event.setProp("title", newTitle);
           }
-        }
-      }
+          updateTaskList();
+        },
 
-      if (scheduled.length === 0) {
-        scheduleList.innerHTML = "<li class='list-group-item text-danger'>No free slots available</li>";
-      } else {
-        scheduled.forEach((s) => {
+        eventChange: function () {
+          updateTaskList();
+        },
+
+        eventRemove: function () {
+          updateTaskList();
+        }
+      });
+
+      calendar.render();
+
+      // Handle modal form submission
+      eventForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        const title = titleInput.value;
+        const duration = parseInt(durationInput.value);
+
+        if (title && duration > 0) {
+          const start = new Date(startInput.value);
+          const end = new Date(start.getTime() + duration * 60000);
+
+          calendar.addEvent({
+            title: title,
+            start: start,
+            end: end,
+            allDay: false
+          });
+
+          updateTaskList();
+          modal.hide();
+        }
+      });
+
+      // Sync events to task list
+      function updateTaskList() {
+        taskList.innerHTML = "";
+        calendar.getEvents().forEach((e) => {
           const li = document.createElement("li");
           li.className = "list-group-item";
-          li.textContent = `${s.task}: ${s.start.toLocaleString()} → ${s.end.toLocaleString()}`;
-          scheduleList.appendChild(li);
+          li.textContent =
+            `${e.title} — ${e.start.toLocaleString()}`
+            + (e.end ? ` → ${e.end.toLocaleString()}` : "");
+          taskList.appendChild(li);
         });
       }
-    }
-
-    window.gapiLoaded = gapiLoaded;
-    window.gisLoaded = gisLoaded;
+    });
   </script>
 </body>
 </html>
