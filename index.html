@@ -55,7 +55,7 @@
             <p class="small-muted">Write lines like: <code>10 hours for Spanish project by 2025-10-10</code> or <code>2 hours for Math exam on 2025-09-25</code></p>
             <textarea id="taskText" class="form-control mb-2" rows="6" placeholder="e.g. 10 hours for Spanish project by 2025-10-10"></textarea>
             <div class="d-grid gap-2">
-              <button id="btnParse" class="btn btn-outline-primary">Parse Tasks</button>
+              <button id="btnParse" class="btn btn-outline-primary">Break Dow Tasks</button>
               <button id="btnClear" class="btn btn-outline-danger">Clear Tasks</button>
             </div>
           </div>
@@ -109,6 +109,33 @@
         <div class="card mt-3">
           <div class="card-header">Generated Study Blocks</div>
           <ul class="list-group list-group-flush" id="scheduleList"></ul>
+        </div>
+
+        <div class="card mt-3">
+          <div class="card-header">Daily Routine</div>
+          <div class="card-body">
+            <div class="mb-2">
+              <label>Sleep (start - end):</label>
+              <input type="time" id="sleepStart" value="23:00"> -
+              <input type="time" id="sleepEnd" value="07:00">
+            </div>
+          <div class="mb-2">
+            <label>Breakfast:</label>
+            <input type="time" id="breakfastTime" value="08:00">
+          </div>
+          <div class="mb-2">
+            <label>Lunch:</label>
+            <input type="time" id="lunchTime" value="12:30">
+          </div>
+          <div class="mb-2">
+            <label>Dinner:</label>
+            <input type="time" id="dinnerTime" value="19:00">
+          </div>
+          <div class="mb-2">
+            <label>Minimum Study Session (minutes):</label>
+            <input type="number" id="minStudy" value="60">
+          </div>
+          <button id="btnSchedule" class="btn btn-primary">Generate Study Sessions</button>
         </div>
       </div>
     </div>
@@ -177,6 +204,84 @@
   <!-- Removed duplicate Google API script -->
 
   <script>
+  function generateStudySessions() {
+    const minStudy = parseInt(document.getElementById("minStudy").value) || 60;
+
+    // Gather all events (user inputs + imported Google Calendar events)
+    const events = calendar.getEvents();
+
+    // Build a sorted list of busy times
+    let busyTimes = events.map(ev => ({
+      start: new Date(ev.start),
+      end: new Date(ev.end)
+    }));
+    busyTimes.sort((a, b) => a.start - b.start);
+
+    // Insert sleep and meals as busy times
+    const today = new Date();
+    const startDay = new Date(today.setHours(0,0,0,0));
+    const endDay = new Date(today.setHours(23,59,59,999));
+
+    function addRoutineTime(timeStr, durationMin) {
+      if (!timeStr) return;
+      const [h, m] = timeStr.split(":").map(Number);
+      let start = new Date(startDay);
+      start.setHours(h, m, 0, 0);
+      let end = new Date(start.getTime() + durationMin * 60000);
+      busyTimes.push({start, end});
+    }
+
+    // Sleep block
+    let sleepStart = document.getElementById("sleepStart").value;
+    let sleepEnd = document.getElementById("sleepEnd").value;
+    if (sleepStart && sleepEnd) {
+      let [sh, sm] = sleepStart.split(":").map(Number);
+      let [eh, em] = sleepEnd.split(":").map(Number);
+      let start = new Date(startDay);
+      start.setHours(sh, sm, 0, 0);
+      let end = new Date(startDay);
+      end.setHours(eh, em, 0, 0);
+      if (end <= start) end.setDate(end.getDate() + 1); // crosses midnight
+      busyTimes.push({start, end});
+    }
+
+    // Meals
+    addRoutineTime(document.getElementById("breakfastTime").value, 30);
+    addRoutineTime(document.getElementById("lunchTime").value, 45);
+    addRoutineTime(document.getElementById("dinnerTime").value, 60);
+
+    // Sort again
+    busyTimes.sort((a, b) => a.start - b.start);
+
+    // Find gaps
+    let freeSlots = [];
+    for (let i = 0; i < busyTimes.length - 1; i++) {
+      let gapStart = busyTimes[i].end;
+      let gapEnd = busyTimes[i+1].start;
+      let gapMinutes = (gapEnd - gapStart) / 60000;
+      if (gapMinutes >= minStudy) {
+        freeSlots.push({start: new Date(gapStart), end: new Date(gapEnd)});
+      }
+    }
+
+    // Add study sessions
+    freeSlots.forEach((slot, idx) => {
+      let duration = Math.min((slot.end - slot.start) / 60000, minStudy);
+      let end = new Date(slot.start.getTime() + duration * 60000);
+      calendar.addEvent({
+        title: "Study Session",
+        start: slot.start,
+        end: end,
+        backgroundColor: "blue",
+        borderColor: "blue"
+      });
+    });
+
+    alert("Study sessions added into free slots!");
+  }
+
+  document.getElementById("btnSchedule").addEventListener("click", generateStudySessions);
+  
   (function () {
     // --------------------------
     // Utilities
@@ -571,91 +676,7 @@
       updateTaskList(); // sync list
     }
 
-    // --------------------------
-    // AI integration (optional)
-    // --------------------------
-    async function generateWithAI() {
-      // prepare context: events + tasks + free slots + settings
-      const now = new Date();
-      const horizonDays = 7;
-      const horizonEnd = new Date(now.getTime() + horizonDays*24*3600*1000);
-      const events = calendar.getEvents().map(e => ({
-        title: e.title,
-        start: e.start.toISOString(),
-        end: e.end ? e.end.toISOString() : null,
-        type: e.extendedProps?.type || null,
-        estimate: e.extendedProps?.estimate || null
-      }));
-      const respectMeals = document.getElementById('respectMeals').checked;
-      const settings = {
-        horizonDays,
-        sleepStart: document.getElementById('sleepStart').value,
-        sleepEnd: document.getElementById('sleepEnd').value,
-        lunchStart: document.getElementById('lunchStart').value,
-        lunchEnd: document.getElementById('lunchEnd').value,
-        dinnerStart: document.getElementById('dinnerStart').value,
-        dinnerEnd: document.getElementById('dinnerEnd').value,
-        respectMeals,
-        blockMinutes: parseInt(document.getElementById('blockMinutes').value) || 60
-      };
-
-      const openaiKey = document.getElementById('openaiKey').value.trim();
-      if (!openaiKey) {
-        if (!confirm('No OpenAI key provided — run local heuristic instead?')) return;
-        const schedule = heuristicSchedule(settings.horizonDays);
-        renderScheduleList(schedule, false);
-        return;
-      }
-
-      // Build prompt
-      const systemMsg = `You are a helpful assistant that creates a weekly study schedule. Output ONLY valid JSON in this exact schema: {"study_blocks": [{"title":"...", "start":"ISO8601","end":"ISO8601"}], "notes":["..."]}. Use the user's calendar events to find exams and assignments (type 'exam' or 'assignment' or titles containing 'due' should be treated as requiring study). Respect sleep and meal windows and do not schedule inside them. Try to schedule study blocks (prefer blockMinutes minutes each) before each task's due date (if provided). If you can't fully allocate required time, put notes describing the deficit.`;
-
-      const userMsg = {
-        events,
-        settings,
-        instruction: 'Create study blocks for the next ' + settings.horizonDays + ' days. Give study blocks as JSON as specified.'
-      };
-
-      // call OpenAI Chat Completions (client-side). WARNING: exposing key in browser is insecure. Prefer a server proxy.
-      try {
-        const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + openaiKey },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini', // change as you prefer
-            messages: [
-              { role: 'system', content: systemMsg },
-              { role: 'user', content: JSON.stringify(userMsg) }
-            ],
-            max_tokens: 700,
-            temperature: 0.2
-          })
-        });
-        if (!resp.ok) {
-          const txt = await resp.text();
-          alert('OpenAI error: ' + resp.status + ' — ' + txt);
-          return;
-        }
-        const j = await resp.json();
-        const assistant = j.choices?.[0]?.message?.content;
-        // find JSON inside assistant content
-        const jsonTextMatch = assistant && assistant.match(/\{[\s\S]*\}/);
-        if (!jsonTextMatch) {
-          alert('AI response did not contain JSON. Response:\n' + assistant);
-          return;
-        }
-        const parsed = JSON.parse(jsonTextMatch[0]);
-        const blocks = parsed.study_blocks.map(b => ({ title: b.title, start: new Date(b.start), end: new Date(b.end) }));
-        await renderScheduleList(blocks, true); // push into calendar
-        if (parsed.notes && parsed.notes.length) {
-          parsed.notes.forEach(n => console.warn('AI note:', n));
-        }
-      } catch (err) {
-        console.error(err);
-        alert('AI scheduling failed: ' + err.message);
-      }
-    }
-
+   
     // --------------------------
     // Buttons
     // --------------------------
