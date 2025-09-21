@@ -413,62 +413,73 @@
     // Parsing quick tasks text
     // --------------------------
     document.getElementById('btnParse').addEventListener('click', () => {
-      const txt = document.getElementById('taskText').value;
-      const lines = txt.split('\n').map(s => s.trim()).filter(Boolean);
-      for (const line of lines) {
-        // Examples to parse:
-        // "10 hours for Spanish project by 2025-10-10"
-        // "2 hours for Math exam on 2025-09-25"
-        // "Spanish project: 10h due 2025-10-10"
-        let m = line.match(/(\d+(\.\d+)?)\s*hours?\s*(for|of)?\s*(.+?)\s*(by|on|due)?\s*(\d{4}-\d{2}-\d{2})?/i);
-        if (m) {
-          const hours = parseFloat(m[1]);
-          const title = (m[4] || 'Task').trim();
-          const due = m[6] ? m[6] : null;
-          // If due date provided, create an 'assignment/exam' event on that date with estimate
-          if (due) {
-            // place as an all-day placeholder at date (user can edit times)
-            calendar.addEvent({
-              id: String(Date.now()) + Math.floor(Math.random()*1000),
-              title: title + ' (due)',
-              start: new Date(due + 'T09:00:00'),
-              end: new Date(due + 'T10:00:00'),
-              extendedProps: { type: 'assignment', estimate: hours }
-            });
-          } else {
-            // add a quick task event without due date
-            calendar.addEvent({
-              id: String(Date.now()) + Math.floor(Math.random()*1000),
-              title: title,
-              start: new Date(),
-              end: new Date(new Date().getTime() + 60*60*1000),
-              extendedProps: { type: 'assignment', estimate: hours }
-            });
-          }
-        } else {
-          // fallback: try "[title] due 2025-..." or "[title] on 2025-..."
-          let m2 = line.match(/(.+?)\s+(?:by|on|due)\s+(\d{4}-\d{2}-\d{2})/i);
-          if (m2) {
-            calendar.addEvent({
-              id: String(Date.now()) + Math.floor(Math.random()*1000),
-              title: m2[1].trim(),
-              start: new Date(m2[2] + 'T09:00:00'),
-              end: new Date(m2[2] + 'T10:00:00'),
-            });
-          } else {
-            // otherwise add as untimed task (user can edit)
-            calendar.addEvent({
-              id: String(Date.now()) + Math.floor(Math.random()*1000),
-              title: line,
-              start: new Date(),
-              end: new Date(new Date().getTime() + 60*60*1000),
-            });
-          }
-        }
+  const txt = document.getElementById('taskText').value;
+  const lines = txt.split('\n').map(s => s.trim()).filter(Boolean);
+
+  // Regex with named groups:
+  // - hours:  number (integer or decimal)
+  // - title:  everything after "for/of" up to an optional "by/on/due YYYY-MM-DD" at end
+  // - due:    optional YYYY-MM-DD date at end
+  const parseRegex = /(?<hours>\d+(?:\.\d+)?)\s*hours?\s*(?:for|of)?\s*(?<title>.+?)(?:\s*(?:by|on|due)\s*(?<due>\d{4}-\d{2}-\d{2}))?$/i;
+
+  for (const line of lines) {
+    const m = line.match(parseRegex);
+
+    if (m && m.groups) {
+      // Use named groups so we can't accidentally pick the wrong index
+      const hours = parseFloat(m.groups.hours);
+      // Use the whole captured title and trim whitespace
+      const title = (m.groups.title || 'Task').trim();
+      const due = m.groups.due || null;
+
+      // debug: inspect what we parsed (open browser console to verify)
+      console.log('Parsed task:', { line, hours, title, due });
+
+      if (due) {
+        // create a placeholder event on the due date (user can edit times later)
+        calendar.addEvent({
+          id: String(Date.now()) + Math.floor(Math.random() * 1000),
+          title: title + ' (due)',
+          start: new Date(due + 'T09:00:00'),
+          end: new Date(due + 'T10:00:00'),
+          extendedProps: { type: 'assignment', estimate: hours }
+        });
+      } else {
+        // quick task without due date
+        calendar.addEvent({
+          id: String(Date.now()) + Math.floor(Math.random() * 1000),
+          title: title,
+          start: new Date(),
+          end: new Date(new Date().getTime() + 60 * 60 * 1000),
+          extendedProps: { type: 'assignment', estimate: hours }
+        });
       }
-      document.getElementById('taskText').value = '';
-      updateTaskList();
-    });
+    } else {
+      // fallback behaviors (unchanged) — try to catch a "title due YYYY-MM-DD" form
+      let m2 = line.match(/(.+?)\s+(?:by|on|due)\s+(\d{4}-\d{2}-\d{2})/i);
+      if (m2) {
+        calendar.addEvent({
+          id: String(Date.now()) + Math.floor(Math.random() * 1000),
+          title: m2[1].trim(),
+          start: new Date(m2[2] + 'T09:00:00'),
+          end: new Date(m2[2] + 'T10:00:00'),
+        });
+      } else {
+        // last fallback: add as untimed task
+        calendar.addEvent({
+          id: String(Date.now()) + Math.floor(Math.random() * 1000),
+          title: line,
+          start: new Date(),
+          end: new Date(new Date().getTime() + 60 * 60 * 1000),
+        });
+      }
+    }
+  }
+
+  // Clear input and refresh list
+  document.getElementById('taskText').value = '';
+  updateTaskList();
+});
 
     document.getElementById('btnClear').addEventListener('click', () => {
       if (!confirm('Clear all calendar events?')) return;
