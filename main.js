@@ -69,6 +69,7 @@ document.addEventListener("DOMContentLoaded", function() {
     });
     calendar.render();
   }
+  
 
   // Modal for confirmation
   function showConfirmModal(message, onConfirm) {
@@ -364,4 +365,5 @@ geminiButton.onclick = async () => {
   } catch (err) {
     log("❌ Gemini error: " + err.message);
   }
+
 };
