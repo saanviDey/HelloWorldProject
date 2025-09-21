@@ -14,13 +14,13 @@
   <script src="https://apis.google.com/js/api.js" defer></script>
   <script src="main.js" defer></script>
   <style>
-    body { background: #d4d7c9; }
+    body { color: #d4d7c9; }
     #calendar { max-width: 1100px; margin: 0 auto; }
     .small-muted { font-size: .9rem; color: #125403; }
   </style>
 </head>
-<body class="bg-light">
-  <h1 class="bg-secondary text-center fluid py-4">📅 Study Smarter</h1>
+<body style="background-color:#a2ac82;">
+  <h1 style="background-color:#0c3c01; text-align:center; padding:1.5rem;">📅 Study Smarter</h1>
   <div class="container pb-4">
 
     <div class="row g-3">
@@ -41,10 +41,7 @@
           </div>
         </div>
 
-        <div class="mt-3">
-          <label class="form-label small-muted">OpenAI API Key (optional — safer to use server/proxy):</label>
-          <input id="openaiKey" class="form-control" placeholder="sk-..." />
-        </div>
+        
       </div>
 
       <!-- Right: Controls -->
@@ -52,8 +49,8 @@
         <div class="card mb-3">
           <div class="card-header">Quick Tasks Input</div>
           <div class="card-body">
-            <p class="small-muted">Write lines like: <code>10 hours for Spanish project by 2025-10-10</code> or <code>2 hours for Math exam on 2025-09-25</code></p>
-            <textarea id="taskText" class="form-control mb-2" rows="6" placeholder="e.g. 10 hours for Spanish project by 2025-10-10"></textarea>
+            <p class="small-muted">Write lines like: <code>10 hours for Spanish project by YYYY-MM-DD</code> or <code>2 hours for Math exam on 2025-09-25</code></p>
+            <textarea id="taskText" class="form-control mb-2" rows="6" placeholder="e.g. 10 hours for Spanish project by YYYY-MM-DD"></textarea>
             <div class="d-grid gap-2">
               <button id="btnParse" class="btn btn-outline-primary">Break Down Tasks</button>
               <button id="btnClear" class="btn btn-outline-danger">Clear Tasks</button>
