@@ -9,7 +9,6 @@ let gapiInited = false;
 let gisInited = false;
 
 
-
 document.addEventListener("DOMContentLoaded", function() {
   // Ensure Google API scripts are loaded
   function loadScript(src, callback) {
